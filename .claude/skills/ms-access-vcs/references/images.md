@@ -207,7 +207,7 @@ OLE objects embedded as `UnboundObjectFrame` controls should be converted to `Im
 When programmatically finding the boundaries of a control block, track `Begin`/`End` depth correctly. The binary text format has **two** forms of `Begin`:
 
 - `Begin ControlType` — standard block opener (e.g., `Begin Image`, `Begin Label`)
-- `Property = Begin` — inline data block (e.g., `OleData = Begin`, `ImageData = Begin`, `RecSrcDt = Begin`, `OnClickEmMacro = Begin`)
+- `Property = Begin` — inline data block (e.g., `OleData = Begin`, `ImageData = Begin`, `RecSrcDt = Begin`, `OnClickEmMacro = Begin`). Listed here for *depth tracking* only — these share a syntax, not a meaning. `OleData`/`ImageData` are hex payloads; `RecSrcDt` is a single 8-byte timestamp (see [Forms](forms.md) rule 3); `OnClickEmMacro` is an embedded macro.
 - `Begin` — bare container opener (section control containers)
 
 All three forms have matching `End` lines. A depth tracker must account for all three:

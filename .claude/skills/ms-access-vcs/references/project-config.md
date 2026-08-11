@@ -150,7 +150,7 @@ DAO-level database properties. Key entries:
 {
   "Info": {"Class": "clsDbProperty", "Description": "Database Properties (DAO)"},
   "Items": {
-    "StartUpForm": {"Value": "fStartup", "Type": 10},
+    "StartUpForm": {"Value": "fFormName", "Type": 10},
     "AccessVersion": {"Value": "09.50", "Type": 10},
     "Build": {"Value": 1, "Type": 4},
     "Theme Resource Name": {"Value": "Office Theme", "Type": 10},

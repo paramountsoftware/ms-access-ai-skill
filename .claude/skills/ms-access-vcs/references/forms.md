@@ -28,7 +28,9 @@ These rules apply when editing any form `.bas` file. Violations cause silent cor
 
    **Without this property, the VBA code compiles but never executes.**
 
-3. **Never edit binary data blocks.** Leave `ImageData = Begin...End`, `RecSrcDt = Begin...End`, and other hex-encoded blocks untouched. Modifying these corrupts the object. For `ConditionalFormat` and `ConditionalFormat14` blocks specifically, see [Conditional Formatting](conditional-formatting.md) — these must be removed entirely and replaced with VBA code.
+3. **Never hand-edit binary data blocks.** Leave `ImageData = Begin...End`, `OleData = Begin...End`, and other hex payload blocks untouched — a single byte error corrupts them. For `ConditionalFormat` and `ConditionalFormat14`, see [Conditional Formatting](conditional-formatting.md) — these must be removed entirely and replaced with VBA code.
+
+   **Exception — `RecSrcDt`.** This is a single 8-byte little-endian IEEE-754 double holding an OLE Automation Date ("Record Source Date"): the moment Access last saved that object's record-source binding. It is a per-object cache stamp, not a checksum of `RecordSource`, and Access re-stamps it on the next design save. It is **optional** — objects with a `RecordSource` and no `RecSrcDt` import cleanly (verified against existing objects that carry a `RecordSource` with no `RecSrcDt` block). When hand-authoring a new form/report, either omit the block or leave a copied one in place; both are safe. Never invent a value, and never set one in the future. Copied objects legitimately share a token — Access does the same on copy-paste, so a family of forms cloned from one original will all carry that original's stamp.
 
 4. **Preserve Begin/End nesting exactly.** Every `Begin` must have a matching `End`. Mismatched nesting causes import failure.
 
@@ -151,6 +153,60 @@ When `SplitLayoutFromVBA=true` and a `.cls` file exists, the `.bas` file must en
 
 ## ComboBox Controls
 
+### `RowSourceType ="Value List"` requires `RowSourceTypeInt =1`
+
+`RowSourceType` is only the human-readable label — **`RowSourceTypeInt` is what Access
+reads.** When it is absent it defaults to `0` = Table/Query, so a control written as:
+
+```
+Begin ComboBox
+    Name ="cmbStatus"
+    RowSourceType ="Value List"      <- looks right
+    RowSource ="Open;Closed"
+End
+```
+
+imports without complaint and then **throws at runtime** — Access tries to execute
+`Open;Closed` as SQL when the form opens or the list drops down. The Access property sheet
+can still show "Value List", so the failure looks unrelated to the row source.
+
+Correct — both properties, with the `Int` form near the **top** of the block:
+
+```
+Begin ComboBox
+    LimitToList = NotDefault        <- Yes: reject values not in the list
+    RowSourceTypeInt =1             <- 1 = Value List (REQUIRED)
+    OverlapFlags =85
+    Name ="cmbStatus"
+    RowSourceType ="Value List"
+    RowSource ="Open;Closed"
+    AllowValueListEdits =0          <- see below
+End
+```
+
+| `RowSourceTypeInt` | Meaning |
+|---|---|
+| `0` (or absent) | Table/Query |
+| `1` | Value List |
+| `2` | Field List |
+
+**Also override `AllowValueListEdits =0`** whenever the form's default ComboBox style block
+sets it to `1`, so users cannot edit the hardcoded list at runtime.
+
+**Item quoting.** `RowSource ="Low;Medium;High"` and
+`RowSource ="\"Low\";\"Medium\";\"High\""` both work; quote items that could otherwise be
+read as a number or an expression.
+
+**Audit** — value-list controls missing the integer property:
+
+```bash
+for f in forms/*.bas; do
+  n=$(grep -c 'RowSourceType ="Value List"' "$f")
+  m=$(grep -c 'RowSourceTypeInt =1' "$f")
+  [ "$n" -gt "$m" ] && echo "$f: $n value lists, $m tagged"
+done
+```
+
 ### BoundColumn
 
 `BoundColumn` in `.bas` files is **0-based** — this differs from the Access UI and VBA, which display it as **1-based**. A `.bas` value of `0` corresponds to column 1 in the UI. This offset is a common source of bugs.
@@ -193,14 +249,14 @@ After adding, removing, or resizing controls in a form or report, recalculate th
 
 Formula: `subform control Width = child form Width + record_selector + scrollbar + borders`
 
-**Worked example** — after shrinking `txtField` from 3535 to 2828 twips at `Left =21465`:
-- New right edge = 21465 + 2828 = 24293
-- Set child form `Width =24293`
-- Set `txtField` `LayoutCachedWidth =24293`
-- Set associated header label `Width =2828`, `LayoutCachedWidth =24293`
+**Worked example** — after shrinking `txtField` from 4000 to 3000 twips at `Left =12000`:
+- New right edge = 12000 + 3000 = 15000
+- Set child form `Width =15000`
+- Set `txtField` `LayoutCachedWidth =15000`
+- Set associated header label `Width =3000`, `LayoutCachedWidth =15000`
 - Child form has record selectors (on) + scrollbar (default/both) + borders: 340 + 300 + 60 = 700
-- In parent form: set subform control `Width =24993`, `LayoutCachedWidth =24993`
-- In parent form: set form-level `Width =24993` (if new value exceeds current width)
+- In parent form: set subform control `Width =15700`, `LayoutCachedWidth =15700`
+- In parent form: set form-level `Width =15700` (if new value exceeds current width)
 
 ## Subform Default Style Restrictions
 

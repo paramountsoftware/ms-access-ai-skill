@@ -15,7 +15,9 @@ These rules apply when editing any report `.bas` file. Violations cause silent c
 
    **Without this property, the VBA code compiles but never executes.**
 
-3. **Never edit binary data blocks.** Leave `ImageData = Begin...End`, `RecSrcDt = Begin...End`, and other hex-encoded blocks untouched. Modifying these corrupts the object. For `ConditionalFormat` and `ConditionalFormat14` blocks specifically, see [Conditional Formatting](conditional-formatting.md) — these must be removed entirely and replaced with VBA code.
+3. **Never hand-edit binary data blocks.** Leave `ImageData = Begin...End`, `OleData = Begin...End`, and other hex payload blocks untouched — a single byte error corrupts them. For `ConditionalFormat` and `ConditionalFormat14`, see [Conditional Formatting](conditional-formatting.md) — these must be removed entirely and replaced with VBA code.
+
+   **Exception — `RecSrcDt`.** This is a single 8-byte little-endian IEEE-754 double holding an OLE Automation Date ("Record Source Date"): the moment Access last saved that object's record-source binding. It is a per-object cache stamp, not a checksum of `RecordSource`, and Access re-stamps it on the next design save. It is **optional** — reports with a `RecordSource` and no `RecSrcDt` import cleanly (verified against existing reports that carry a `RecordSource` with no `RecSrcDt` block). When hand-authoring a new report, either omit the block or leave a copied one in place; both are safe. Never invent a value, and never set one in the future. Copied objects legitimately share a token — Access does the same on copy-paste, so objects cloned from one original will all carry that original's stamp.
 
 4. **Preserve Begin/End nesting exactly.** Every `Begin` must have a matching `End`. Mismatched nesting causes import failure.
 
@@ -28,6 +30,8 @@ These rules apply when editing any report `.bas` file. Violations cause silent c
    - **String escaping uses backslash (`\"`), NOT VBA-style doubled quotes (`""`).**
 
 7. **When removing a control block,** remove everything from `Begin ControlType` through its closing `End`, including any trailing `LayoutCached*` properties. Then renumber TabIndex values to fill the gap (Rule 1).
+
+8. **The report `Width` must fit the printable page width.** See [Section Width vs Page Width](#section-width-vs-page-width). Re-check it after any change to control geometry or print settings.
 
 ## Report Structure
 
@@ -111,18 +115,18 @@ Define multiple `Begin BreakLevel...End` blocks for multi-level sorting/grouping
 Example with 4 break levels (only level 2 has visible header/footer):
 ```
         Begin BreakLevel
-            ControlSource ="JobDate"
+            ControlSource ="OrderDate"
         End
         Begin BreakLevel
-            ControlSource ="Driver"
+            ControlSource ="Region"
         End
         Begin BreakLevel
             GroupHeader = NotDefault
             GroupFooter = NotDefault
-            ControlSource ="Driver"
+            ControlSource ="Region"
         End
         Begin BreakLevel
-            ControlSource ="StoreArrivalTime"
+            ControlSource ="ArrivalTime"
         End
         ...
         Begin BreakHeader
@@ -137,6 +141,44 @@ Example with 4 break levels (only level 2 has visible header/footer):
             ...
         End
 ```
+
+## Section Width vs Page Width
+
+A report has a **single** `Width` property, on the `Begin Report` block — it is the width of every section. If it does not fit the printable area, Access reports:
+
+> The section width is greater than the page width…
+
+and prints a blank page after every real page. The constraint, in twips (1 inch = 1440 twips):
+
+```
+Report Width + LeftMargin + RightMargin  <=  PaperWidth
+```
+
+Margins come from the report's print-settings `.json` (`Items.Margins.LeftMargin` / `.RightMargin`, in **inches** — multiply by 1440); paper size and orientation come from `Items.Printer`.
+
+| Paper | Portrait | Landscape |
+|---|---|---|
+| A3 | 16838 | 23811 |
+| A4 | 11906 | 16838 |
+| A5 | 8391 | 11906 |
+| Letter | 12240 | 15840 |
+| Legal | 12240 | 20160 |
+
+Ignore `Items.Margins.Width` in the `.json` — that is the multi-column item size, not the section width. It is unused when `DefaultSize` is `true` and routinely disagrees with the report `Width`.
+
+### Choosing the value
+
+`Width` must be at least the rightmost control edge, so the smallest legal value is:
+
+```
+max(Left + Width) across every control in every section
+```
+
+- A control that **omits `Left` has `Left = 0`**. Full-width banner labels in a report header are typically the widest control on the report and are easy to miss for exactly this reason.
+- Include controls nested in a child `Begin ... End` block (such as a text box's attached label) — their `Left` is absolute, not relative to the parent.
+- `LayoutCached*` properties cache the control's right and bottom edges but go stale. Compute from `Left` and `Width`; never read the cache.
+
+Set `Width` to that maximum. It sits flush against the widest control and leaves no slack to spill onto a second page. If the maximum exceeds the printable width, narrow or reposition controls — or change orientation, paper size, or margins. Raising `Width` past the printable width is never the fix.
 
 ## Label Property Restrictions
 

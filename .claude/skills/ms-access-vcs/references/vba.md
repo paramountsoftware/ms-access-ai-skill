@@ -37,3 +37,31 @@ Attribute VB_GlobalNameSpace = False
 ```
 
 The `VERSION 1.0 CLASS` block and `Attribute VB_Name` are standard VBA class file headers used by the VB editor, but VCS strips them on export and does not expect them on import.
+
+## Writing to Hyperlink Columns
+
+An Access hyperlink value is a `#`-delimited triplet: `displaytext#address#subaddress`.
+Two rules follow; breaking either produces a link that looks fine in the grid and opens
+the wrong thing:
+
+1. **The address must be absolute** (`C:\...` or `\\server\share\...`). Access resolves a
+   relative address against the folder the front end runs from, so the same row works from
+   one copy of the front end and fails from another.
+2. **No `#` anywhere in the display text or the address.** Windows *permits* `#` in
+   filenames, which is what makes it dangerous — the extra delimiter shifts the triplet,
+   the address segment becomes a bare relative fragment, and that then hits rule 1. One
+   reference-style filename (`Invoice#123.pdf`) is enough to do it.
+
+Sanitise generated filenames at the source (strip `\/:*?"<>|` **and** `#`) rather than
+escaping at each use. For a file the user picked off disk the name cannot be sanitised —
+prompt the user to rename it instead of storing a link you already know is broken.
+
+Own the sanitise / build / read-back helpers in one shared module rather than repeating
+them per form, and read an address back with `HyperlinkPart(value, acAddress)` — never
+split on `#` by hand.
+
+## Module-Level Declarations
+
+Put `Const` and `Dim` declarations in the declarations section at the top of the module,
+above the first procedure. VBA tolerates them between procedures, but they read as stray
+statements and hide from anyone scanning the header.
